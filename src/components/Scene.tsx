@@ -10,40 +10,37 @@ const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { positio
   const selectedObject = useSceneStore(state => state.selectedObject as THREE.Mesh);
   const geometry = selectedObject?.geometry as THREE.BufferGeometry;
   const positionAttribute = geometry?.attributes.position;
-  const initialPosition = useRef(position.clone());
 
   const onPointerDown = (e: any) => {
     e.stopPropagation();
     if (selected) {
-      dragStart.current = e.point.clone();
-      initialPosition.current = position.clone();
+      dragStart.current = new THREE.Vector3().copy(position);
     }
   };
 
   const onPointerMove = (e: any) => {
-    if (dragStart.current && selected && positionAttribute) {
-      const currentPos = e.point.clone();
-      const delta = currentPos.sub(dragStart.current);
+    if (dragStart.current && selected && positionAttribute && mesh.current) {
+      // Get the new world position from the pointer event
+      const worldPosition = new THREE.Vector3();
+      mesh.current.getWorldPosition(worldPosition);
       
-      // Update vertex position in local space
-      const worldToLocal = new THREE.Matrix4().copy(selectedObject.matrixWorld).invert();
-      const localDelta = delta.applyMatrix4(worldToLocal);
+      // Convert world position to local space
+      const localPosition = worldPosition.clone();
+      selectedObject.worldToLocal(localPosition);
       
-      const newPosition = initialPosition.current.clone().add(localDelta);
-      position.copy(newPosition);
-      
-      // Find all instances of this vertex in the geometry
+      // Update all connected vertices
       for (let i = 0; i < positionAttribute.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
-        if (Math.abs(vertex.x - initialPosition.current.x) < 0.001 &&
-            Math.abs(vertex.y - initialPosition.current.y) < 0.001 &&
-            Math.abs(vertex.z - initialPosition.current.z) < 0.001) {
-          positionAttribute.setXYZ(i, newPosition.x, newPosition.y, newPosition.z);
+        if (Math.abs(vertex.x - dragStart.current.x) < 0.001 &&
+            Math.abs(vertex.y - dragStart.current.y) < 0.001 &&
+            Math.abs(vertex.z - dragStart.current.z) < 0.001) {
+          positionAttribute.setXYZ(i, localPosition.x, localPosition.y, localPosition.z);
         }
       }
       
       positionAttribute.needsUpdate = true;
       geometry.computeVertexNormals();
+      dragStart.current.copy(position);
     }
   };
 
