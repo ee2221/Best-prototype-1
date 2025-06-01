@@ -10,63 +10,45 @@ const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { positio
   const selectedObject = useSceneStore(state => state.selectedObject as THREE.Mesh);
   const geometry = selectedObject?.geometry as THREE.BufferGeometry;
   const positionAttribute = geometry?.attributes.position;
-  const { camera } = useThree();
+  const initialPosition = useRef(position.clone());
 
   const onPointerDown = (e: any) => {
     e.stopPropagation();
     if (selected) {
-      dragStart.current = position.clone();
-      // Disable OrbitControls while dragging
-      const controls = document.querySelector('.orbit-controls');
-      if (controls) controls.setAttribute('enabled', 'false');
+      dragStart.current = e.point.clone();
+      initialPosition.current = position.clone();
     }
   };
 
   const onPointerMove = (e: any) => {
-    if (dragStart.current && selected && positionAttribute && mesh.current) {
-      // Get mouse position in normalized device coordinates
-      const mouse = new THREE.Vector2(
-        (e.offsetX / e.target.offsetWidth) * 2 - 1,
-        -(e.offsetY / e.target.offsetHeight) * 2 + 1
-      );
-
-      // Create ray from mouse position
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, camera);
-
-      // Get the plane perpendicular to the camera
-      const planeNormal = new THREE.Vector3().subVectors(camera.position, position).normalize();
-      const plane = new THREE.Plane(planeNormal, -position.dot(planeNormal));
-
-      // Find intersection point
-      const intersectionPoint = new THREE.Vector3();
-      raycaster.ray.intersectPlane(plane, intersectionPoint);
-
-      // Convert to local space
+    if (dragStart.current && selected && positionAttribute) {
+      const currentPos = e.point.clone();
+      const delta = currentPos.sub(dragStart.current);
+      
+      // Update vertex position in local space
       const worldToLocal = new THREE.Matrix4().copy(selectedObject.matrixWorld).invert();
-      const localPosition = intersectionPoint.clone().applyMatrix4(worldToLocal);
-
-      // Update all connected vertices
+      const localDelta = delta.applyMatrix4(worldToLocal);
+      
+      const newPosition = initialPosition.current.clone().add(localDelta);
+      position.copy(newPosition);
+      
+      // Find all instances of this vertex in the geometry
       for (let i = 0; i < positionAttribute.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
-        if (Math.abs(vertex.x - dragStart.current.x) < 0.001 &&
-            Math.abs(vertex.y - dragStart.current.y) < 0.001 &&
-            Math.abs(vertex.z - dragStart.current.z) < 0.001) {
-          positionAttribute.setXYZ(i, localPosition.x, localPosition.y, localPosition.z);
+        if (Math.abs(vertex.x - initialPosition.current.x) < 0.001 &&
+            Math.abs(vertex.y - initialPosition.current.y) < 0.001 &&
+            Math.abs(vertex.z - initialPosition.current.z) < 0.001) {
+          positionAttribute.setXYZ(i, newPosition.x, newPosition.y, newPosition.z);
         }
       }
-
+      
       positionAttribute.needsUpdate = true;
       geometry.computeVertexNormals();
-      dragStart.current = localPosition;
     }
   };
 
   const onPointerUp = () => {
     dragStart.current = undefined;
-    // Re-enable OrbitControls after dragging
-    const controls = document.querySelector('.orbit-controls');
-    if (controls) controls.setAttribute('enabled', 'true');
   };
 
   return (
@@ -203,8 +185,7 @@ const Scene: React.FC = () => {
 
       <OrbitControls
         makeDefault
-        enabled={editMode === 'object'}
-        className="orbit-controls"
+        enabled={true}
       />
     </Canvas>
   );
