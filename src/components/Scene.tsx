@@ -5,7 +5,7 @@ import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
 
 const DraggableVertex = ({ position, selected, onClick }: { position: THREE.Vector3, selected: boolean, onClick: () => void }) => {
-  const mesh = useRef<THREE.Mesh>();
+  const mesh = useRef<THREE.Mesh>(null);
   const dragStart = useRef<THREE.Vector3>();
   const geometry = useSceneStore(state => state.selectedObject?.geometry as THREE.BufferGeometry);
   const positionAttribute = geometry?.attributes.position;
@@ -16,7 +16,7 @@ const DraggableVertex = ({ position, selected, onClick }: { position: THREE.Vect
   };
 
   const onPointerMove = (e: any) => {
-    if (dragStart.current && positionAttribute) {
+    if (dragStart.current && positionAttribute && selected) {
       const currentPos = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
       const delta = currentPos.sub(dragStart.current);
       
@@ -38,7 +38,10 @@ const DraggableVertex = ({ position, selected, onClick }: { position: THREE.Vect
     <mesh
       ref={mesh}
       position={position}
-      onClick={onClick}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -50,11 +53,13 @@ const DraggableVertex = ({ position, selected, onClick }: { position: THREE.Vect
 };
 
 const EdgeHelper = ({ start, end, selected, onClick }: { start: THREE.Vector3, end: THREE.Vector3, selected: boolean, onClick: () => void }) => {
-  const points = [start, end];
   return (
-    <line onClick={onClick}>
+    <line onClick={(e) => {
+      e.stopPropagation();
+      onClick();
+    }}>
       <bufferGeometry>
-        <float32BufferAttribute attach="attributes-position" args={[new Float32Array(points.flatMap(p => [p.x, p.y, p.z])), 3]} />
+        <float32BufferAttribute attach="attributes-position" args={[new Float32Array([start.x, start.y, start.z, end.x, end.y, end.z]), 3]} />
       </bufferGeometry>
       <lineBasicMaterial color={selected ? '#ff0000' : '#ffffff'} linewidth={2} />
     </line>
@@ -79,7 +84,7 @@ const MeshHelpers = () => {
   }
 
   const handleElementSelect = (index: number) => {
-    selectElements([index]); // Only allow single selection for dragging
+    selectElements([index]);
   };
 
   if (editMode === 'vertex') {
@@ -90,10 +95,7 @@ const MeshHelpers = () => {
             key={i}
             position={vertex}
             selected={selectedElements.includes(i)}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleElementSelect(i);
-            }}
+            onClick={() => handleElementSelect(i)}
           />
         ))}
       </group>
@@ -116,10 +118,7 @@ const MeshHelpers = () => {
             start={edge[0]}
             end={edge[1]}
             selected={selectedElements.includes(i)}
-            onClick={(e) => {
-              e.stopPropagation();
-              handleElementSelect(i);
-            }}
+            onClick={() => handleElementSelect(i)}
           />
         ))}
         {selectedElements.length > 0 && (
