@@ -4,12 +4,50 @@ import { OrbitControls, TransformControls, Grid } from '@react-three/drei';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
 
-const VertexHelper = ({ position, selected, onClick }: { position: THREE.Vector3, selected: boolean, onClick: () => void }) => (
-  <mesh position={position} onClick={onClick}>
-    <sphereGeometry args={[0.05, 16, 16]} />
-    <meshBasicMaterial color={selected ? '#ff0000' : '#ffffff'} />
-  </mesh>
-);
+const DraggableVertex = ({ position, selected, onClick }: { position: THREE.Vector3, selected: boolean, onClick: () => void }) => {
+  const mesh = useRef<THREE.Mesh>();
+  const dragStart = useRef<THREE.Vector3>();
+  const geometry = useSceneStore(state => state.selectedObject?.geometry as THREE.BufferGeometry);
+  const positionAttribute = geometry?.attributes.position;
+
+  const onPointerDown = (e: any) => {
+    e.stopPropagation();
+    dragStart.current = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
+  };
+
+  const onPointerMove = (e: any) => {
+    if (dragStart.current && positionAttribute) {
+      const currentPos = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
+      const delta = currentPos.sub(dragStart.current);
+      
+      // Update vertex position
+      const vertexIndex = useSceneStore.getState().selectedElements[0];
+      const newPos = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex).add(delta);
+      positionAttribute.setXYZ(vertexIndex, newPos.x, newPos.y, newPos.z);
+      positionAttribute.needsUpdate = true;
+      
+      dragStart.current = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
+    }
+  };
+
+  const onPointerUp = () => {
+    dragStart.current = undefined;
+  };
+
+  return (
+    <mesh
+      ref={mesh}
+      position={position}
+      onClick={onClick}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+    >
+      <sphereGeometry args={[0.05, 16, 16]} />
+      <meshBasicMaterial color={selected ? '#ff0000' : '#ffffff'} />
+    </mesh>
+  );
+};
 
 const EdgeHelper = ({ start, end, selected, onClick }: { start: THREE.Vector3, end: THREE.Vector3, selected: boolean, onClick: () => void }) => {
   const points = [start, end];
@@ -41,17 +79,14 @@ const MeshHelpers = () => {
   }
 
   const handleElementSelect = (index: number) => {
-    const newSelection = selectedElements.includes(index)
-      ? selectedElements.filter(i => i !== index)
-      : [...selectedElements, index];
-    selectElements(newSelection);
+    selectElements([index]); // Only allow single selection for dragging
   };
 
   if (editMode === 'vertex') {
     return (
       <group>
         {vertices.map((vertex, i) => (
-          <VertexHelper
+          <DraggableVertex
             key={i}
             position={vertex}
             selected={selectedElements.includes(i)}
@@ -61,14 +96,6 @@ const MeshHelpers = () => {
             }}
           />
         ))}
-        {selectedElements.length > 0 && (
-          <TransformControls
-            object={selectedObject}
-            mode={useSceneStore.getState().transformMode}
-            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
-            space="world"
-          />
-        )}
       </group>
     );
   }
@@ -216,7 +243,7 @@ const Scene: React.FC = () => {
 
       <OrbitControls
         makeDefault
-        enabled={!selectedObject || editMode !== 'object'}
+        enabled={true}
       />
     </Canvas>
   );
