@@ -11,51 +11,52 @@ const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { positio
   const geometry = selectedObject?.geometry as THREE.BufferGeometry;
   const positionAttribute = geometry?.attributes.position;
 
+  // Maya-like soft selection falloff function
   const calculateFalloff = (distance: number, radius: number = 1): number => {
     if (distance >= radius) return 0;
-    const x = distance / radius;
-    return Math.cos(x * Math.PI) * 0.5 + 0.5;
+    const t = distance / radius;
+    // Using Maya's soft selection curve approximation
+    return Math.pow(1 - Math.pow(t, 2), 2);
   };
 
   const onPointerDown = (e: any) => {
     e.stopPropagation();
-    if (selected) {
-      dragStart.current = new THREE.Vector3().copy(position);
+    if (selected && mesh.current) {
+      dragStart.current = new THREE.Vector3();
+      mesh.current.getWorldPosition(dragStart.current);
     }
   };
 
   const onPointerMove = (e: any) => {
-    if (dragStart.current && selected && positionAttribute && mesh.current) {
-      // Get the new world position from the pointer event
-      const worldPosition = new THREE.Vector3();
-      mesh.current.getWorldPosition(worldPosition);
+    if (!dragStart.current || !selected || !positionAttribute || !mesh.current) return;
+
+    // Get pointer position in world space
+    const pointer = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
+    const delta = pointer.sub(dragStart.current);
+    
+    // Convert to object space
+    const worldToLocal = selectedObject.matrixWorld.clone().invert();
+    const localDelta = delta.clone().applyMatrix4(worldToLocal);
+
+    // Get the selected vertex position
+    const selectedVertexPos = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex);
+    
+    // Update vertices with soft selection
+    for (let i = 0; i < positionAttribute.count; i++) {
+      const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
+      const distance = vertex.distanceTo(selectedVertexPos);
+      const influence = calculateFalloff(distance, 2);
       
-      // Convert world position to local space
-      const localPosition = worldPosition.clone();
-      selectedObject.worldToLocal(localPosition);
-      
-      // Calculate the movement delta
-      const delta = localPosition.clone().sub(dragStart.current);
-      
-      // Get the original vertex position
-      const originalVertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex);
-      
-      // Update all vertices with falloff
-      for (let i = 0; i < positionAttribute.count; i++) {
-        const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
-        const distance = vertex.distanceTo(originalVertex);
-        const influence = calculateFalloff(distance, 2);
-        
-        if (influence > 0) {
-          const newPosition = vertex.clone().add(delta.multiplyScalar(influence));
-          positionAttribute.setXYZ(i, newPosition.x, newPosition.y, newPosition.z);
-        }
+      if (influence > 0) {
+        const newPosition = vertex.clone().add(localDelta.clone().multiplyScalar(influence));
+        positionAttribute.setXYZ(i, newPosition.x, newPosition.y, newPosition.z);
       }
-      
-      positionAttribute.needsUpdate = true;
-      geometry.computeVertexNormals();
-      dragStart.current.copy(localPosition);
     }
+
+    // Update geometry
+    positionAttribute.needsUpdate = true;
+    geometry.computeVertexNormals();
+    dragStart.current.copy(pointer);
   };
 
   const onPointerUp = () => {
@@ -74,8 +75,13 @@ const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { positio
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
     >
-      <sphereGeometry args={[0.1, 16, 16]} />
-      <meshBasicMaterial color={selected ? '#ff0000' : '#ffffff'} />
+      <sphereGeometry args={[0.05, 16, 16]} />
+      <meshBasicMaterial 
+        color={selected ? '#ff0000' : '#ffffff'}
+        transparent
+        opacity={0.8}
+        depthTest={false}
+      />
     </mesh>
   );
 };
@@ -85,23 +91,21 @@ const MeshHelpers = () => {
 
   if (!(selectedObject instanceof THREE.Mesh) || editMode === 'object') return null;
 
-  // Only show vertex editing for BoxGeometry
-  if (!(selectedObject.geometry instanceof THREE.BoxGeometry)) return null;
-
   const geometry = selectedObject.geometry;
   const position = geometry.attributes.position;
   const vertices: THREE.Vector3[] = [];
   const vertexIndices: number[] = [];
   const matrix = selectedObject.matrixWorld;
 
-  // Get unique vertices for cube
+  // Get unique vertices using a more precise comparison
   const uniqueVertices = new Map<string, number>();
   for (let i = 0; i < position.count; i++) {
     const vertex = new THREE.Vector3();
     vertex.fromBufferAttribute(position, i);
     vertex.applyMatrix4(matrix);
     
-    const key = `${vertex.x.toFixed(4)},${vertex.y.toFixed(4)},${vertex.z.toFixed(4)}`;
+    // Use higher precision for vertex position comparison
+    const key = `${vertex.x.toFixed(6)},${vertex.y.toFixed(6)},${vertex.z.toFixed(6)}`;
     if (!uniqueVertices.has(key)) {
       uniqueVertices.set(key, i);
       vertices.push(vertex);
