@@ -9,17 +9,22 @@ interface SceneObject {
   parentId?: string;
 }
 
+type EditMode = 'object' | 'vertex' | 'edge' | 'face';
+
 interface SceneState {
   objects: SceneObject[];
   selectedObject: THREE.Object3D | null;
   selectedObjects: Set<string>;
   transformMode: 'translate' | 'rotate' | 'scale';
+  editMode: EditMode;
+  selectedElements: number[];
   addObject: (object: THREE.Object3D, name: string, parentId?: string) => void;
   removeObject: (id: string) => void;
   setSelectedObject: (object: THREE.Object3D | null) => void;
   toggleObjectSelection: (id: string) => void;
   clearSelection: () => void;
   setTransformMode: (mode: 'translate' | 'rotate' | 'scale') => void;
+  setEditMode: (mode: EditMode) => void;
   toggleVisibility: (id: string) => void;
   updateObjectName: (id: string, name: string) => void;
   updateObjectProperties: () => void;
@@ -27,6 +32,8 @@ interface SceneState {
   updateObjectOpacity: (opacity: number) => void;
   createGroup: () => void;
   ungroup: (groupId: string) => void;
+  selectElements: (indices: number[]) => void;
+  clearElementSelection: () => void;
 }
 
 export const useSceneStore = create<SceneState>((set) => ({
@@ -34,6 +41,8 @@ export const useSceneStore = create<SceneState>((set) => ({
   selectedObject: null,
   selectedObjects: new Set(),
   transformMode: 'translate',
+  editMode: 'object',
+  selectedElements: [],
   
   addObject: (object, name, parentId) =>
     set((state) => ({
@@ -42,7 +51,6 @@ export const useSceneStore = create<SceneState>((set) => ({
     
   removeObject: (id) =>
     set((state) => {
-      // Also remove all children when removing a group
       const idsToRemove = new Set([id]);
       state.objects.forEach(obj => {
         if (obj.parentId === id) idsToRemove.add(obj.id);
@@ -59,7 +67,8 @@ export const useSceneStore = create<SceneState>((set) => ({
     
   setSelectedObject: (object) => set({ 
     selectedObject: object,
-    selectedObjects: new Set()
+    selectedObjects: new Set(),
+    selectedElements: []
   }),
   
   toggleObjectSelection: (id) =>
@@ -71,13 +80,13 @@ export const useSceneStore = create<SceneState>((set) => ({
         newSelection.add(id);
       }
       
-      // If this is the only selected object, also set it as the selectedObject for transform controls
       if (newSelection.size === 1) {
         const selectedObj = state.objects.find(obj => obj.id === id);
         if (selectedObj) {
           return { 
             selectedObjects: newSelection,
-            selectedObject: selectedObj.object
+            selectedObject: selectedObj.object,
+            selectedElements: []
           };
         }
       }
@@ -85,9 +94,21 @@ export const useSceneStore = create<SceneState>((set) => ({
       return { selectedObjects: newSelection };
     }),
     
-  clearSelection: () => set({ selectedObjects: new Set() }),
+  clearSelection: () => set({ 
+    selectedObjects: new Set(),
+    selectedElements: []
+  }),
   
   setTransformMode: (mode) => set({ transformMode: mode }),
+  
+  setEditMode: (mode) => set((state) => ({ 
+    editMode: mode,
+    selectedElements: []
+  })),
+
+  selectElements: (indices) => set({ selectedElements: indices }),
+
+  clearElementSelection: () => set({ selectedElements: [] }),
   
   toggleVisibility: (id) =>
     set((state) => {
@@ -145,7 +166,6 @@ export const useSceneStore = create<SceneState>((set) => ({
       const groupId = crypto.randomUUID();
       const selectedObjectsArray = Array.from(state.selectedObjects);
       
-      // Calculate the center position of all selected objects
       const center = new THREE.Vector3();
       let count = 0;
       
@@ -164,7 +184,6 @@ export const useSceneStore = create<SceneState>((set) => ({
         group.position.copy(center);
       }
       
-      // Add objects to group, adjusting their positions relative to the group's center
       const updatedObjects = state.objects.map(obj => {
         if (state.selectedObjects.has(obj.id)) {
           const worldPosition = new THREE.Vector3();
@@ -176,7 +195,6 @@ export const useSceneStore = create<SceneState>((set) => ({
         return obj;
       });
 
-      // Add the group itself
       updatedObjects.push({
         id: groupId,
         object: group,
@@ -194,20 +212,17 @@ export const useSceneStore = create<SceneState>((set) => ({
   ungroup: (groupId) =>
     set((state) => {
       const groupObj = state.objects.find(obj => obj.id === groupId);
-      const children = state.objects.filter(obj => obj.parentId === groupId);
       
       if (!groupObj) return state;
       
-      // Get the group's world matrix
       const worldMatrix = new THREE.Matrix4();
       groupObj.object.updateWorldMatrix(true, false);
       worldMatrix.copy(groupObj.object.matrixWorld);
       
       const updatedObjects = state.objects
-        .filter(obj => obj.id !== groupId) // Remove the group
+        .filter(obj => obj.id !== groupId)
         .map(obj => {
           if (obj.parentId === groupId) {
-            // Apply the group's transformation to the child
             obj.object.applyMatrix4(worldMatrix);
             obj.object.removeFromParent();
             return { ...obj, parentId: undefined };
