@@ -1,113 +1,124 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, TransformControls, Grid } from '@react-three/drei';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
 
-const VertexEditor = () => {
-  const { selectedObject } = useSceneStore();
-  const { camera, gl } = useThree();
-  const [isDragging, setIsDragging] = useState(false);
-  const draggedVertex = useRef<number | null>(null);
-  const lastMousePosition = useRef<THREE.Vector2>(new THREE.Vector2());
+const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { position: THREE.Vector3, selected: boolean, onClick: () => void, vertexIndex: number }) => {
+  const mesh = useRef<THREE.Mesh>(null);
+  const dragStart = useRef<THREE.Vector3>();
+  const selectedObject = useSceneStore(state => state.selectedObject as THREE.Mesh);
+  const geometry = selectedObject?.geometry as THREE.BufferGeometry;
+  const positionAttribute = geometry?.attributes.position;
+  const initialPosition = useRef(position.clone());
 
-  if (!(selectedObject instanceof THREE.Mesh)) return null;
-  const geometry = selectedObject.geometry as THREE.BufferGeometry;
-  const positions = geometry.attributes.position;
-
-  const handlePointerDown = (e: THREE.Event) => {
-    const rect = gl.domElement.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
-    
-    // Find closest vertex
-    let minDist = Infinity;
-    let closestVertex = -1;
-    
-    for (let i = 0; i < positions.count; i++) {
-      const vertex = new THREE.Vector3();
-      vertex.fromBufferAttribute(positions, i);
-      vertex.applyMatrix4(selectedObject.matrixWorld);
-      
-      const distance = raycaster.ray.distanceToPoint(vertex);
-      if (distance < minDist && distance < 0.5) {
-        minDist = distance;
-        closestVertex = i;
-      }
-    }
-    
-    if (closestVertex !== -1) {
-      setIsDragging(true);
-      draggedVertex.current = closestVertex;
-      lastMousePosition.current.set(x, y);
+  const onPointerDown = (e: any) => {
+    e.stopPropagation();
+    if (selected) {
+      dragStart.current = e.point.clone();
+      initialPosition.current = position.clone();
     }
   };
 
-  const handlePointerMove = (e: THREE.Event) => {
-    if (!isDragging || draggedVertex.current === null) return;
-
-    const rect = gl.domElement.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    const deltaX = x - lastMousePosition.current.x;
-    const deltaY = y - lastMousePosition.current.y;
-    
-    const vertex = new THREE.Vector3();
-    vertex.fromBufferAttribute(positions, draggedVertex.current);
-    
-    // Convert screen space delta to world space
-    const worldDelta = new THREE.Vector3(
-      deltaX * camera.position.z * 0.1,
-      deltaY * camera.position.z * 0.1,
-      0
-    );
-    worldDelta.applyQuaternion(camera.quaternion);
-    
-    // Apply to all connected vertices
-    const vertexPos = new THREE.Vector3(
-      positions.getX(draggedVertex.current),
-      positions.getY(draggedVertex.current),
-      positions.getZ(draggedVertex.current)
-    );
-    
-    for (let i = 0; i < positions.count; i++) {
-      const pos = new THREE.Vector3(
-        positions.getX(i),
-        positions.getY(i),
-        positions.getZ(i)
-      );
+  const onPointerMove = (e: any) => {
+    if (dragStart.current && selected && positionAttribute) {
+      const currentPos = e.point.clone();
+      const delta = currentPos.sub(dragStart.current);
       
-      if (pos.distanceTo(vertexPos) < 0.001) {
-        pos.add(worldDelta);
-        positions.setXYZ(i, pos.x, pos.y, pos.z);
+      // Update vertex position in local space
+      const worldToLocal = new THREE.Matrix4().copy(selectedObject.matrixWorld).invert();
+      const localDelta = delta.applyMatrix4(worldToLocal);
+      
+      const newPosition = initialPosition.current.clone().add(localDelta);
+      position.copy(newPosition);
+      
+      // Find all instances of this vertex in the geometry
+      for (let i = 0; i < positionAttribute.count; i++) {
+        const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
+        if (Math.abs(vertex.x - initialPosition.current.x) < 0.001 &&
+            Math.abs(vertex.y - initialPosition.current.y) < 0.001 &&
+            Math.abs(vertex.z - initialPosition.current.z) < 0.001) {
+          positionAttribute.setXYZ(i, newPosition.x, newPosition.y, newPosition.z);
+        }
       }
+      
+      positionAttribute.needsUpdate = true;
+      geometry.computeVertexNormals();
     }
-    
-    positions.needsUpdate = true;
-    geometry.computeVertexNormals();
-    lastMousePosition.current.set(x, y);
   };
 
-  const handlePointerUp = () => {
-    setIsDragging(false);
-    draggedVertex.current = null;
+  const onPointerUp = () => {
+    dragStart.current = undefined;
   };
 
   return (
     <mesh
-      position={[0, 0, 0]}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      ref={mesh}
+      position={position}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
     >
-      <planeGeometry args={[1000, 1000]} />
-      <meshBasicMaterial visible={false} />
+      <sphereGeometry args={[0.1, 16, 16]} />
+      <meshBasicMaterial color={selected ? '#ff0000' : '#ffffff'} />
     </mesh>
   );
+};
+
+const MeshHelpers = () => {
+  const { selectedObject, editMode, selectedElements, selectElements } = useSceneStore();
+
+  if (!(selectedObject instanceof THREE.Mesh) || editMode === 'object') return null;
+
+  // Only show vertex editing for BoxGeometry
+  if (!(selectedObject.geometry instanceof THREE.BoxGeometry)) return null;
+
+  const geometry = selectedObject.geometry;
+  const position = geometry.attributes.position;
+  const vertices: THREE.Vector3[] = [];
+  const vertexIndices: number[] = [];
+  const matrix = selectedObject.matrixWorld;
+
+  // Get unique vertices for cube
+  const uniqueVertices = new Map<string, number>();
+  for (let i = 0; i < position.count; i++) {
+    const vertex = new THREE.Vector3();
+    vertex.fromBufferAttribute(position, i);
+    vertex.applyMatrix4(matrix);
+    
+    const key = `${vertex.x.toFixed(4)},${vertex.y.toFixed(4)},${vertex.z.toFixed(4)}`;
+    if (!uniqueVertices.has(key)) {
+      uniqueVertices.set(key, i);
+      vertices.push(vertex);
+      vertexIndices.push(i);
+    }
+  }
+
+  const handleElementSelect = (index: number) => {
+    selectElements([vertexIndices[index]]);
+  };
+
+  if (editMode === 'vertex') {
+    return (
+      <group>
+        {vertices.map((vertex, i) => (
+          <DraggableVertex
+            key={i}
+            position={vertex}
+            selected={selectedElements.includes(vertexIndices[i])}
+            onClick={() => handleElementSelect(i)}
+            vertexIndex={vertexIndices[i]}
+          />
+        ))}
+      </group>
+    );
+  }
+
+  return null;
 };
 
 const Scene: React.FC = () => {
@@ -124,7 +135,7 @@ const Scene: React.FC = () => {
 
   return (
     <Canvas
-      camera={{ position: [0, 0, 5], fov: 50 }}
+      camera={{ position: [5, 5, 5], fov: 75 }}
       className="w-full h-full bg-gray-900"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
@@ -136,50 +147,45 @@ const Scene: React.FC = () => {
       <ambientLight intensity={0.5} />
       <directionalLight position={[10, 10, 5]} intensity={1} />
       
-      {editMode === 'vertex' ? (
-        <>
-          {selectedObject && <primitive object={selectedObject} />}
-          <VertexEditor />
-        </>
-      ) : (
-        <>
-          <Grid
-            infiniteGrid
-            cellSize={1}
-            sectionSize={3}
-            fadeDistance={30}
-            fadeStrength={1}
+      <Grid
+        infiniteGrid
+        cellSize={1}
+        sectionSize={3}
+        fadeDistance={30}
+        fadeStrength={1}
+      />
+
+      {objects.map(({ object, visible, id }) => (
+        visible && (
+          <primitive
+            key={id}
+            object={object}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (e.ctrlKey || e.metaKey) {
+                toggleObjectSelection(id);
+              } else {
+                setSelectedObject(object);
+              }
+            }}
           />
-          {objects.map(({ object, visible, id }) => (
-            visible && (
-              <primitive
-                key={id}
-                object={object}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (e.ctrlKey || e.metaKey) {
-                    toggleObjectSelection(id);
-                  } else {
-                    setSelectedObject(object);
-                  }
-                }}
-              />
-            )
-          ))}
-          {selectedObject && editMode === 'object' && (
-            <TransformControls
-              object={selectedObject}
-              mode={transformMode}
-              onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
-              space="world"
-            />
-          )}
-        </>
+        )
+      ))}
+
+      {selectedObject && editMode === 'object' && (
+        <TransformControls
+          object={selectedObject}
+          mode={transformMode}
+          onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+          space="world"
+        />
       )}
+
+      <MeshHelpers />
 
       <OrbitControls
         makeDefault
-        enabled={editMode !== 'vertex'}
+        enabled={true}
       />
     </Canvas>
   );
