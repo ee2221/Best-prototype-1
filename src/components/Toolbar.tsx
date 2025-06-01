@@ -1,8 +1,5 @@
 import React from 'react';
-import { 
-  Cuboid, Cherry, Cylinder, Cone, Pyramid, Move, RotateCw, Maximize, Sun,
-  MousePointer, Vertices, GitBranch, Square
-} from 'lucide-react';
+import { Cuboid, Cherry, Cylinder, Cone, Pyramid, Move, RotateCw, Maximize, Sun, MousePointer, FlipVertical as Vertices, GitBranch, Square } from 'lucide-react';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
 
