@@ -11,6 +11,12 @@ const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { positio
   const geometry = selectedObject?.geometry as THREE.BufferGeometry;
   const positionAttribute = geometry?.attributes.position;
 
+  const calculateFalloff = (distance: number, radius: number = 1): number => {
+    if (distance >= radius) return 0;
+    const x = distance / radius;
+    return Math.cos(x * Math.PI) * 0.5 + 0.5;
+  };
+
   const onPointerDown = (e: any) => {
     e.stopPropagation();
     if (selected) {
@@ -28,19 +34,27 @@ const DraggableVertex = ({ position, selected, onClick, vertexIndex }: { positio
       const localPosition = worldPosition.clone();
       selectedObject.worldToLocal(localPosition);
       
-      // Update all connected vertices
+      // Calculate the movement delta
+      const delta = localPosition.clone().sub(dragStart.current);
+      
+      // Get the original vertex position
+      const originalVertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex);
+      
+      // Update all vertices with falloff
       for (let i = 0; i < positionAttribute.count; i++) {
         const vertex = new THREE.Vector3().fromBufferAttribute(positionAttribute, i);
-        if (Math.abs(vertex.x - dragStart.current.x) < 0.001 &&
-            Math.abs(vertex.y - dragStart.current.y) < 0.001 &&
-            Math.abs(vertex.z - dragStart.current.z) < 0.001) {
-          positionAttribute.setXYZ(i, localPosition.x, localPosition.y, localPosition.z);
+        const distance = vertex.distanceTo(originalVertex);
+        const influence = calculateFalloff(distance, 2);
+        
+        if (influence > 0) {
+          const newPosition = vertex.clone().add(delta.multiplyScalar(influence));
+          positionAttribute.setXYZ(i, newPosition.x, newPosition.y, newPosition.z);
         }
       }
       
       positionAttribute.needsUpdate = true;
       geometry.computeVertexNormals();
-      dragStart.current.copy(position);
+      dragStart.current.copy(localPosition);
     }
   };
 
