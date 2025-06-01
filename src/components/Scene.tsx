@@ -4,102 +4,19 @@ import { OrbitControls, TransformControls, Grid } from '@react-three/drei';
 import { useSceneStore } from '../store/sceneStore';
 import * as THREE from 'three';
 
-const DraggableVertex = ({ position, selected, onClick }: { position: THREE.Vector3, selected: boolean, onClick: () => void }) => {
-  const mesh = useRef<THREE.Mesh>();
-  const { camera } = useThree();
-  const dragStart = useRef<THREE.Vector3>();
-  const geometry = useSceneStore(state => state.selectedObject?.geometry as THREE.BufferGeometry);
-  const positionAttribute = geometry?.attributes.position;
+const VertexHelper = ({ position, selected, onClick }: { position: THREE.Vector3, selected: boolean, onClick: () => void }) => (
+  <mesh position={position} onClick={onClick}>
+    <sphereGeometry args={[0.05, 16, 16]} />
+    <meshBasicMaterial color={selected ? '#ff0000' : '#ffffff'} />
+  </mesh>
+);
 
-  const onPointerDown = (e: any) => {
-    e.stopPropagation();
-    if (selected) {
-      dragStart.current = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
-    }
-  };
-
-  const onPointerMove = (e: any) => {
-    if (dragStart.current && selected && positionAttribute) {
-      const currentPos = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
-      const delta = currentPos.sub(dragStart.current);
-      
-      // Update vertex position
-      const vertexIndex = useSceneStore.getState().selectedElements[0];
-      const newPos = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex).add(delta);
-      positionAttribute.setXYZ(vertexIndex, newPos.x, newPos.y, newPos.z);
-      positionAttribute.needsUpdate = true;
-      
-      dragStart.current = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
-    }
-  };
-
-  const onPointerUp = () => {
-    dragStart.current = undefined;
-  };
-
+const EdgeHelper = ({ start, end, selected, onClick }: { start: THREE.Vector3, end: THREE.Vector3, selected: boolean, onClick: () => void }) => {
+  const points = [start, end];
   return (
-    <mesh
-      ref={mesh}
-      position={position}
-      onClick={onClick}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
-      <sphereGeometry args={[0.05, 16, 16]} />
-      <meshBasicMaterial color={selected ? '#ff0000' : '#ffffff'} />
-    </mesh>
-  );
-};
-
-const DraggableEdge = ({ start, end, selected, onClick }: { start: THREE.Vector3, end: THREE.Vector3, selected: boolean, onClick: () => void }) => {
-  const line = useRef<THREE.Line>();
-  const dragStart = useRef<THREE.Vector3>();
-  const geometry = useSceneStore(state => state.selectedObject?.geometry as THREE.BufferGeometry);
-  const positionAttribute = geometry?.attributes.position;
-
-  const onPointerDown = (e: any) => {
-    e.stopPropagation();
-    if (selected) {
-      dragStart.current = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
-    }
-  };
-
-  const onPointerMove = (e: any) => {
-    if (dragStart.current && selected && positionAttribute) {
-      const currentPos = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
-      const delta = currentPos.sub(dragStart.current);
-      
-      // Update edge vertices positions
-      const edgeIndex = useSceneStore.getState().selectedElements[0];
-      const vertexIndex1 = edgeIndex * 2;
-      const vertexIndex2 = edgeIndex * 2 + 1;
-      
-      const pos1 = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex1).add(delta);
-      const pos2 = new THREE.Vector3().fromBufferAttribute(positionAttribute, vertexIndex2).add(delta);
-      
-      positionAttribute.setXYZ(vertexIndex1, pos1.x, pos1.y, pos1.z);
-      positionAttribute.setXYZ(vertexIndex2, pos2.x, pos2.y, pos2.z);
-      positionAttribute.needsUpdate = true;
-      
-      dragStart.current = new THREE.Vector3(e.point.x, e.point.y, e.point.z);
-    }
-  };
-
-  const onPointerUp = () => {
-    dragStart.current = undefined;
-  };
-
-  return (
-    <line
-      ref={line}
-      onClick={onClick}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-    >
+    <line onClick={onClick}>
       <bufferGeometry>
-        <float32BufferAttribute attach="attributes-position" args={[new Float32Array([start.x, start.y, start.z, end.x, end.y, end.z]), 3]} />
+        <float32BufferAttribute attach="attributes-position" args={[new Float32Array(points.flatMap(p => [p.x, p.y, p.z])), 3]} />
       </bufferGeometry>
       <lineBasicMaterial color={selected ? '#ff0000' : '#ffffff'} linewidth={2} />
     </line>
@@ -124,14 +41,17 @@ const MeshHelpers = () => {
   }
 
   const handleElementSelect = (index: number) => {
-    selectElements([index]); // Only allow single selection for dragging
+    const newSelection = selectedElements.includes(index)
+      ? selectedElements.filter(i => i !== index)
+      : [...selectedElements, index];
+    selectElements(newSelection);
   };
 
   if (editMode === 'vertex') {
     return (
       <group>
         {vertices.map((vertex, i) => (
-          <DraggableVertex
+          <VertexHelper
             key={i}
             position={vertex}
             selected={selectedElements.includes(i)}
@@ -141,6 +61,14 @@ const MeshHelpers = () => {
             }}
           />
         ))}
+        {selectedElements.length > 0 && (
+          <TransformControls
+            object={selectedObject}
+            mode={useSceneStore.getState().transformMode}
+            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+            space="world"
+          />
+        )}
       </group>
     );
   }
@@ -156,7 +84,7 @@ const MeshHelpers = () => {
     return (
       <group>
         {edges.map((edge, i) => (
-          <DraggableEdge
+          <EdgeHelper
             key={i}
             start={edge[0]}
             end={edge[1]}
@@ -167,6 +95,14 @@ const MeshHelpers = () => {
             }}
           />
         ))}
+        {selectedElements.length > 0 && (
+          <TransformControls
+            object={selectedObject}
+            mode={useSceneStore.getState().transformMode}
+            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+            space="world"
+          />
+        )}
       </group>
     );
   }
@@ -201,6 +137,14 @@ const MeshHelpers = () => {
             />
           </mesh>
         ))}
+        {selectedElements.length > 0 && (
+          <TransformControls
+            object={selectedObject}
+            mode={useSceneStore.getState().transformMode}
+            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+            space="world"
+          />
+        )}
       </group>
     );
   }
@@ -272,7 +216,7 @@ const Scene: React.FC = () => {
 
       <OrbitControls
         makeDefault
-        enabled={true}
+        enabled={!selectedObject || editMode !== 'object'}
       />
     </Canvas>
   );
