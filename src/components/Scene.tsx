@@ -25,7 +25,6 @@ const EdgeHelper = ({ start, end, selected, onClick }: { start: THREE.Vector3, e
 
 const MeshHelpers = () => {
   const { selectedObject, editMode, selectedElements, selectElements } = useSceneStore();
-  const { raycaster, camera } = useThree();
 
   if (!(selectedObject instanceof THREE.Mesh) || editMode === 'object') return null;
 
@@ -41,6 +40,13 @@ const MeshHelpers = () => {
     vertices.push(vertex);
   }
 
+  const handleElementSelect = (index: number) => {
+    const newSelection = selectedElements.includes(index)
+      ? selectedElements.filter(i => i !== index)
+      : [...selectedElements, index];
+    selectElements(newSelection);
+  };
+
   if (editMode === 'vertex') {
     return (
       <group>
@@ -49,9 +55,20 @@ const MeshHelpers = () => {
             key={i}
             position={vertex}
             selected={selectedElements.includes(i)}
-            onClick={() => selectElements([i])}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleElementSelect(i);
+            }}
           />
         ))}
+        {selectedElements.length > 0 && (
+          <TransformControls
+            object={selectedObject}
+            mode={useSceneStore.getState().transformMode}
+            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+            space="world"
+          />
+        )}
       </group>
     );
   }
@@ -72,9 +89,62 @@ const MeshHelpers = () => {
             start={edge[0]}
             end={edge[1]}
             selected={selectedElements.includes(i)}
-            onClick={() => selectElements([i])}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleElementSelect(i);
+            }}
           />
         ))}
+        {selectedElements.length > 0 && (
+          <TransformControls
+            object={selectedObject}
+            mode={useSceneStore.getState().transformMode}
+            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+            space="world"
+          />
+        )}
+      </group>
+    );
+  }
+
+  if (editMode === 'face') {
+    const faces: THREE.Vector3[][] = [];
+    for (let i = 0; i < position.count; i += 3) {
+      faces.push([vertices[i], vertices[i + 1], vertices[i + 2]]);
+    }
+
+    return (
+      <group>
+        {faces.map((face, i) => (
+          <mesh
+            key={i}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleElementSelect(i);
+            }}
+          >
+            <bufferGeometry>
+              <float32BufferAttribute
+                attach="attributes-position"
+                args={[new Float32Array(face.flatMap(v => [v.x, v.y, v.z])), 3]}
+              />
+            </bufferGeometry>
+            <meshBasicMaterial
+              color={selectedElements.includes(i) ? '#ff0000' : '#ffffff'}
+              opacity={0.3}
+              transparent
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+        ))}
+        {selectedElements.length > 0 && (
+          <TransformControls
+            object={selectedObject}
+            mode={useSceneStore.getState().transformMode}
+            onObjectChange={() => useSceneStore.getState().updateObjectProperties()}
+            space="world"
+          />
+        )}
       </group>
     );
   }
